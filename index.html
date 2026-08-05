@@ -1,0 +1,299 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Skapa schema + tabeller</title>
+  <style>
+    body { font-family: system-ui, Arial; max-width: 1100px; margin: 40px auto; padding: 0 16px; }
+    input, button, select { font-size: 16px; }
+    input, select { padding: 8px; width: 100%; box-sizing: border-box; }
+    button { padding: 8px 12px; cursor: pointer; }
+    textarea { width: 100%; height: 460px; margin-top: 16px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; margin: 12px 0; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 12px; }
+    .row2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .titleRow { display:flex; justify-content: space-between; align-items: end; gap: 12px;}
+    label { display:block; font-weight: 600; margin: 8px 0 6px; }
+    .checks { display:flex; flex-direction: column; gap: 8px; }
+    .checks label { font-weight: 400; margin: 0; }
+    .muted { color:#666; font-size: 12px; margin-top: 6px; }
+    .actions { display:flex; gap: 10px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+    .danger { background: #fff; border: 1px solid #c00; color: #c00; }
+  </style>
+</head>
+<body>
+  <h1>Generera SQL: schema + tabeller + triggers</h1>
+
+  <label for="schemaName">Schemanamn</label>
+  <input id="schemaName" placeholder="t.ex. kund_123" />
+
+  <div class="titleRow" style="margin-top:14px;">
+    <h2 style="margin:0;">Tabeller</h2>
+    <button id="addTableBtn" type="button">+ Lägg till tabell</button>
+  </div>
+
+  <div id="tables"></div>
+
+  <div class="actions">
+    <button id="generateBtn" type="button">Generera SQL</button>
+    <button id="downloadBtn" type="button">Ladda ner .sql</button>
+  </div>
+
+  <textarea id="output" placeholder="SQL visas här..." spellcheck="false"></textarea>
+
+<script>
+  const tablesEl = document.getElementById('tables');
+  const outputEl = document.getElementById('output');
+  const schemaEl = document.getElementById('schemaName');
+
+  // Obligatoriska fält (låsta/ibockade)
+  const MANDATORY_FIELDS = [
+    { key: 'gid', label: 'gid (PK, identity) [obligatorisk]', locked: true },
+    { key: 'geom', label: 'geom (geometry) [obligatorisk]', locked: true },
+    { key: 'skapad_av', label: 'skapad_av [obligatorisk]', locked: true },
+    { key: 'skapad_datum', label: 'skapad_datum [obligatorisk]', locked: true },
+    { key: 'modifierad_av', label: 'modifierad_av [obligatorisk]', locked: true },
+    { key: 'modifierad_datum', label: 'modifierad_datum [obligatorisk]', locked: true },
+  ];
+
+  // Frivilliga fält
+  const OPTIONAL_FIELDS = [
+    { key: 'namn', label: 'namn (varchar(50))' },
+    { key: 'typ', label: 'typ (varchar(50))' },
+    { key: 'lagesosakerhet_plan', label: 'lagesosakerhet_plan (numeric(10,5))' },
+    { key: 'insamlingsmetod', label: 'insamlingsmetod (varchar(50))' },
+    { key: 'langd', label: 'langd (double precision)' },
+    { key: 'area', label: 'area (numeric(10,2))' },
+  ];
+
+  // Triggers (nycklarna måste matcha server.js)
+  const TRIGGERS = [
+    { key:'uppdatera_langd', label:'trigger_uppdatera_langd (BEFORE INSERT)', requiresCols:['geom','langd'] },
+    { key:'uppdatera_area', label:'trigger_uppdatera_area (BEFORE INSERT)', requiresCols:['geom','area'] },
+    { key:'uppdatera_modifierad_av', label:'trigger_uppdatera_modifierad_av (BEFORE INSERT OR UPDATE)', requiresCols:['modifierad_av'] },
+    { key:'uppdatera_modifierad_datum', label:'trigger_uppdatera_modifierad_datum (BEFORE INSERT OR UPDATE)', requiresCols:['modifierad_datum'] },
+    { key:'uppdatera_skapad_av', label:'trigger_uppdatera_skapad_av (BEFORE INSERT)', requiresCols:['skapad_av'] },
+    { key:'uppdatera_skapad_datum', label:'trigger_uppdatera_skapad_datum (BEFORE INSERT)', requiresCols:['skapad_datum'] },
+  ];
+
+  // SRID-val (måste matcha allowlist i server.js)
+  const SRIDS = [
+    { value: 3006, label: 'SWEREF 99 TM (3006)' },
+    { value: 3013, label: 'SWEREF 99 13 30 (3013)' },
+    { value: 3014, label: 'SWEREF 99 17 15 (3014)' },
+  ];
+
+  const GEOM_TYPES = [
+    'Geometry', 'Point', 'LineString', 'Polygon',
+    'MultiPoint', 'MultiLineString', 'MultiPolygon'
+  ];
+
+  function rnd() {
+    try { return crypto.getRandomValues(new Uint32Array(1))[0].toString(16); }
+    catch { return Math.random().toString(16).slice(2); }
+  }
+
+  function makeChecks(items, groupClass, checkedKeys, lockedKeys = new Set()) {
+    const wrap = document.createElement('div');
+    wrap.className = `checks ${groupClass}`;
+
+    for (const it of items) {
+      const id = `${groupClass}_${it.key}_${rnd()}`;
+      const checked = checkedKeys.includes(it.key);
+      const locked = lockedKeys.has(it.key);
+
+      const lab = document.createElement('label');
+      lab.htmlFor = id;
+      lab.innerHTML = `
+        <input type="checkbox" id="${id}" data-key="${it.key}" ${checked ? 'checked' : ''} ${locked ? 'disabled' : ''}>
+        ${it.label}
+      `;
+      wrap.appendChild(lab);
+    }
+    return wrap;
+  }
+
+  function ensureColsForTrigger(card, triggerKey) {
+    const trig = TRIGGERS.find(t => t.key === triggerKey);
+    if (!trig) return;
+
+    for (const col of trig.requiresCols) {
+      // geom/modifierad_*/skapad_* finns i mandatory (låsta), men kan också ligga i optional för vissa (langd/area)
+      const cb = card.querySelector(`input[type=checkbox][data-key="${CSS.escape(col)}"]`);
+      if (cb) cb.checked = true;
+    }
+  }
+
+  function wireTriggerAutoCols(card) {
+    const triggerCbs = [...card.querySelectorAll('.triggerFields input[type=checkbox]')];
+    for (const cb of triggerCbs) {
+      cb.addEventListener('change', () => {
+        if (cb.checked) ensureColsForTrigger(card, cb.dataset.key);
+      });
+    }
+  }
+
+  function addTableCard(initial = {}) {
+    const card = document.createElement('div');
+    card.className = 'card';
+
+    const mandatoryKeys = MANDATORY_FIELDS.map(x => x.key);
+    const locked = new Set(MANDATORY_FIELDS.filter(x => x.locked).map(x => x.key));
+
+    card.innerHTML = `
+      <div class="titleRow">
+        <div style="flex:1;">
+          <label>Tabellnamn</label>
+          <input class="tableName" placeholder="t.ex. objekt" value="${initial.name ?? ''}">
+        </div>
+        <button type="button" class="removeBtn danger">Ta bort</button>
+      </div>
+
+      <div class="row2">
+        <div>
+          <label>Geom: typ</label>
+          <select class="geomType"></select>
+        </div>
+        <div>
+          <label>Geom: SRID</label>
+          <select class="srid"></select>
+        </div>
+      </div>
+
+      <div class="grid">
+        <div>
+          <label>Obligatoriska fält</label>
+          <div class="mandatoryFields"></div>
+          <div class="muted">Dessa är alltid med och kan inte avmarkeras.</div>
+        </div>
+        <div>
+          <label>Frivilliga fält</label>
+          <div class="optionalFields"></div>
+        </div>
+        <div>
+          <label>Triggers</label>
+          <div class="triggerFields"></div>
+          <div class="muted">När du väljer en trigger bockas nödvändiga kolumner i automatiskt.</div>
+        </div>
+      </div>
+    `;
+
+    // Fyll geomType
+    const geomTypeSel = card.querySelector('.geomType');
+    for (const gt of GEOM_TYPES) {
+      const opt = document.createElement('option');
+      opt.value = gt;
+      opt.textContent = gt;
+      geomTypeSel.appendChild(opt);
+    }
+    geomTypeSel.value = initial.geomType ?? 'Geometry';
+
+    // Fyll SRID
+    const sridSel = card.querySelector('.srid');
+    for (const s of SRIDS) {
+      const opt = document.createElement('option');
+      opt.value = String(s.value);
+      opt.textContent = s.label;
+      sridSel.appendChild(opt);
+    }
+    sridSel.value = String(initial.srid ?? 3006); // default: SWEREF 99 TM
+
+    // checks
+    card.querySelector('.mandatoryFields').appendChild(
+      makeChecks(MANDATORY_FIELDS, 'mandatory', mandatoryKeys, locked)
+    );
+
+    card.querySelector('.optionalFields').appendChild(
+      makeChecks(OPTIONAL_FIELDS, 'optional', initial.optionalFields ?? [])
+    );
+
+    card.querySelector('.triggerFields').appendChild(
+      makeChecks(TRIGGERS.map(t => ({ key: t.key, label: t.label })), 'triggers', initial.triggers ?? [])
+    );
+
+    card.querySelector('.removeBtn').addEventListener('click', () => card.remove());
+
+    wireTriggerAutoCols(card);
+
+    // säkerställ required cols om initial triggers var satta
+    for (const t of (initial.triggers ?? [])) ensureColsForTrigger(card, t);
+
+    tablesEl.appendChild(card);
+  }
+
+  function collectTables() {
+    const cards = [...tablesEl.querySelectorAll('.card')];
+    return cards.map(card => {
+      const name = card.querySelector('.tableName').value.trim();
+      const geomType = card.querySelector('.geomType').value;
+      const srid = Number(card.querySelector('.srid').value);
+
+      // mandatory: ta alla (disabled checkboxes räknas inte alltid som :checked i alla browsers om man gör konstigt,
+      // så vi bygger från listan)
+      const mandatoryFields = MANDATORY_FIELDS.map(x => x.key);
+
+      const optionalFields = [...card.querySelectorAll('.optionalFields input[type=checkbox]:checked')]
+        .map(x => x.dataset.key);
+
+      const triggers = [...card.querySelectorAll('.triggerFields input[type=checkbox]:checked')]
+        .map(x => x.dataset.key);
+
+      return { name, geomType, srid, mandatoryFields, optionalFields, triggers };
+    });
+  }
+
+  async function generateSql() {
+    outputEl.value = '';
+
+    const schemaName = schemaEl.value.trim();
+    const tables = collectTables();
+
+    const res = await fetch('/api/generate-sql', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({ schemaName, tables })
+    });
+
+    const data = await res.json();
+    if (!res.ok) {
+      outputEl.value = `Fel: ${data.error || 'Okänt fel'}`;
+      return null;
+    }
+
+    outputEl.value = data.sql;
+    return data.sql;
+  }
+
+  function downloadSql(sql) {
+    const blob = new Blob([sql], { type: 'application/sql;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `${schemaEl.value.trim() || 'schema'}.sql`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+
+    URL.revokeObjectURL(url);
+  }
+
+  document.getElementById('addTableBtn').addEventListener('click', () => addTableCard());
+  document.getElementById('generateBtn').addEventListener('click', generateSql);
+  document.getElementById('downloadBtn').addEventListener('click', async () => {
+    const sql = await generateSql();
+    if (sql) downloadSql(sql);
+  });
+
+  // Start: en tabell
+  addTableCard({
+    name: 'objekt',
+    geomType: 'Geometry',
+    srid: 3006,
+    optionalFields: ['namn','typ'],
+    triggers: ['uppdatera_skapad_av','uppdatera_skapad_datum','uppdatera_modifierad_av','uppdatera_modifierad_datum']
+  });
+</script>
+</body>
+</html>
