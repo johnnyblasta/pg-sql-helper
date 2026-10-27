@@ -22,7 +22,6 @@ REVOKE ALL ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} FROM qgis_r;
 
 -- Skrivande roller får bara lägga till rader (via triggern), inte ändra eller ta bort historik
 GRANT ALL ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} TO geodataowner;
-GRANT SELECT ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} TO geoserver;
 GRANT SELECT ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} TO geoserver_r;
 GRANT INSERT, SELECT ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} TO geoserver_w;
 GRANT ALL ON TABLE {{SCHEMA_Q}}.{{HIST_Q}} TO joh17bla;

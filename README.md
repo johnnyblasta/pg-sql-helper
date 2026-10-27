@@ -47,7 +47,7 @@ docker run -p 3000:3000 pg-sql-helper
    - **Frivilliga fält** att ta med
    - **Triggers** att koppla på. Kolumner som en trigger behöver bockas i automatiskt.
    - **Skapa historiktabell** om ändringar ska loggas (se [Historiktabell](#historiktabell))
-3. Klicka **Generera SQL** för att visa resultatet, eller **Ladda ner .sql** för att spara det som `<schemanamn>.sql`.
+3. Klicka **Generera SQL** för att visa resultatet, **Kopiera** för att kopiera det till urklipp, eller **Ladda ner .sql** för att spara det som `<schemanamn>.sql`.
 
 Schema- och tabellnamn måste matcha `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$` (börja med bokstav eller `_`, max 63 tecken). Med historiktabell blir tabellnamnet i praktiken kortare, eftersom även `<tabell>_spara_historik` måste rymmas inom 63 tecken.
 
@@ -56,7 +56,7 @@ Schema- och tabellnamn måste matcha `^[a-zA-Z_][a-zA-Z0-9_]{0,62}$` (börja med
 ### Schema
 
 - `CREATE SCHEMA IF NOT EXISTS` med ägare `geodataowner`
-- `USAGE` på schemat till `PUBLIC`, `geoserver`, `geoserver_r` och `qgis_r`
+- `USAGE` på schemat till `PUBLIC`, `geoserver_r`, `geoserver_w` och `qgis_r`
 - Standardbehörigheter (`ALTER DEFAULT PRIVILEGES`) för nya tabeller
 - Triggerfunktionerna nedan, skapade i schemat
 
@@ -84,7 +84,6 @@ Behörigheter per tabell:
 | Roll | Behörighet |
 |---|---|
 | `geodataowner` | ägare, ALL |
-| `geoserver` | ALL |
 | `geoserver_w` | SELECT, INSERT, UPDATE, DELETE |
 | `geoserver_r`, `qgis_r` | SELECT |
 | `joh17bla` | ALL |
@@ -156,7 +155,7 @@ SELECT mitt_schema.objekt_aterstall(123);
 Den genererade SQL:en förutsätter att följande redan finns:
 
 - PostGIS-tillägget (`CREATE EXTENSION postgis;`)
-- Rollerna `geodataowner`, `geoserver`, `geoserver_r`, `geoserver_w`, `qgis_r` och `joh17bla`
+- Rollerna `geodataowner`, `geoserver_r`, `geoserver_w`, `qgis_r` och `joh17bla`
 
 Skripten använder `IF NOT EXISTS`, `CREATE OR REPLACE` och `DROP TRIGGER IF EXISTS`, så de går att köra flera gånger. En tabell som redan finns ändras dock inte; nya kolumner läggs inte till i befintliga tabeller.
 
