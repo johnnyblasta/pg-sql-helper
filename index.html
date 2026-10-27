@@ -175,6 +175,12 @@
           <label>Triggers</label>
           <div class="triggerFields"></div>
           <div class="muted">När du väljer en trigger bockas nödvändiga kolumner i automatiskt.</div>
+
+          <label>Historik</label>
+          <div class="checks">
+            <label><input type="checkbox" class="historik" ${initial.historik ? 'checked' : ''}> Skapa historiktabell</label>
+          </div>
+          <div class="muted">Skapar &lt;tabell&gt;_historik med samma kolumner. Vid UPDATE/DELETE sparas den gamla raden med ändringstyp och tidsstämpel. Återställ med &lt;tabell&gt;_aterstall(historik_id).</div>
         </div>
       </div>
     `;
@@ -239,7 +245,9 @@
       const triggers = [...card.querySelectorAll('.triggerFields input[type=checkbox]:checked')]
         .map(x => x.dataset.key);
 
-      return { name, geomType, srid, mandatoryFields, optionalFields, triggers };
+      const historik = card.querySelector('.historik').checked;
+
+      return { name, geomType, srid, mandatoryFields, optionalFields, triggers, historik };
     });
   }
 
