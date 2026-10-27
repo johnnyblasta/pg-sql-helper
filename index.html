@@ -37,6 +37,7 @@
 
   <div class="actions">
     <button id="generateBtn" type="button">Generera SQL</button>
+    <button id="copyBtn" type="button">Kopiera</button>
     <button id="downloadBtn" type="button">Ladda ner .sql</button>
   </div>
 
@@ -287,8 +288,28 @@
     URL.revokeObjectURL(url);
   }
 
+  async function copySql(sql, btn) {
+    try {
+      await navigator.clipboard.writeText(sql);
+    } catch {
+      // fallback om Clipboard API inte är tillgängligt (t.ex. ej https)
+      outputEl.select();
+      document.execCommand('copy');
+    }
+
+    const label = btn.textContent;
+    btn.textContent = 'Kopierat!';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1500);
+  }
+
   document.getElementById('addTableBtn').addEventListener('click', () => addTableCard());
   document.getElementById('generateBtn').addEventListener('click', generateSql);
+  document.getElementById('copyBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const sql = await generateSql();
+    if (sql) copySql(sql, btn);
+  });
   document.getElementById('downloadBtn').addEventListener('click', async () => {
     const sql = await generateSql();
     if (sql) downloadSql(sql);
