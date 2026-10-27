@@ -4,7 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 
 const app = express();
-app.use(express.json());
+// Ta inte emot komprimerade request-bodies (skydd mot CVE-2026-111497, Brotli RCE)
+app.use(express.json({ inflate: false }));
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);

@@ -1,5 +1,7 @@
 # Liten, säker basbild — Alpine är ~50MB istället för ~300MB
-FROM node:20-alpine
+# Minst 24.22.1 krävs: åtgärdar CVE-2026-111497 (Brotli RCE, "node2shell").
+# Node 20 är end-of-life och får ingen fix.
+FROM node:24.22.1-alpine
 
 WORKDIR /app
 
