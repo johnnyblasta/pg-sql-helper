@@ -65,13 +65,13 @@ const COLUMN_DEFS = {
 const TRIGGERS = {
   uppdatera_langd: {
     trigName: "trigger_uppdatera_langd",
-    timing: "BEFORE INSERT",
+    timing: "BEFORE INSERT OR UPDATE",
     requires: ["langd", "geom"],
     fn: "uppdatera_langd",
   },
   uppdatera_area: {
     trigName: "trigger_uppdatera_area",
-    timing: "BEFORE INSERT",
+    timing: "BEFORE INSERT OR UPDATE",
     requires: ["area", "geom"],
     fn: "uppdatera_area",
   },
