@@ -19,7 +19,7 @@ Verktyget kör ingen SQL själv och ansluter inte till någon databas.
 
 ### Lokalt med Node.js
 
-Kräver Node.js 20 eller senare.
+Kräver Node.js 24.22.1 eller senare (22.x: 22.23.4 eller senare), som åtgärdar CVE-2026-111497.
 
 ```bash
 npm ci
@@ -193,7 +193,7 @@ Svar: `{ "sql": "..." }`, eller `{ "error": "..." }` med status 400 vid ogiltig 
 | `template-base.sql` | Mall för schema, behörigheter och triggerfunktioner |
 | `template-table.sql` | Mall för en tabell med behörigheter och index |
 | `template-historik.sql` | Mall för historiktabell, historiktrigger och återställningsfunktion |
-| `Dockerfile` | Bygger en produktionsimage baserad på `node:20-alpine` |
+| `Dockerfile` | Bygger en produktionsimage baserad på `node:24.22.1-alpine` |
 
 `table.html` och `template.sql` är äldre versioner som inte används av servern.
 
