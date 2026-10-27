@@ -37,6 +37,7 @@
 
   <div class="actions">
     <button id="generateBtn" type="button">Generera SQL</button>
+    <button id="copyBtn" type="button">Kopiera</button>
     <button id="downloadBtn" type="button">Ladda ner .sql</button>
   </div>
 
@@ -69,8 +70,8 @@
 
   // Triggers (nycklarna måste matcha server.js)
   const TRIGGERS = [
-    { key:'uppdatera_langd', label:'trigger_uppdatera_langd (BEFORE INSERT)', requiresCols:['geom','langd'] },
-    { key:'uppdatera_area', label:'trigger_uppdatera_area (BEFORE INSERT)', requiresCols:['geom','area'] },
+    { key:'uppdatera_langd', label:'trigger_uppdatera_langd (BEFORE INSERT OR UPDATE)', requiresCols:['geom','langd'] },
+    { key:'uppdatera_area', label:'trigger_uppdatera_area (BEFORE INSERT OR UPDATE)', requiresCols:['geom','area'] },
     { key:'uppdatera_modifierad_av', label:'trigger_uppdatera_modifierad_av (BEFORE INSERT OR UPDATE)', requiresCols:['modifierad_av'] },
     { key:'uppdatera_modifierad_datum', label:'trigger_uppdatera_modifierad_datum (BEFORE INSERT OR UPDATE)', requiresCols:['modifierad_datum'] },
     { key:'uppdatera_skapad_av', label:'trigger_uppdatera_skapad_av (BEFORE INSERT)', requiresCols:['skapad_av'] },
@@ -175,6 +176,12 @@
           <label>Triggers</label>
           <div class="triggerFields"></div>
           <div class="muted">När du väljer en trigger bockas nödvändiga kolumner i automatiskt.</div>
+
+          <label>Historik</label>
+          <div class="checks">
+            <label><input type="checkbox" class="historik" ${initial.historik ? 'checked' : ''}> Skapa historiktabell</label>
+          </div>
+          <div class="muted">Skapar &lt;tabell&gt;_historik med samma kolumner. Vid UPDATE/DELETE sparas den gamla raden med ändringstyp och tidsstämpel. Återställ med &lt;tabell&gt;_aterstall(historik_id).</div>
         </div>
       </div>
     `;
@@ -239,7 +246,9 @@
       const triggers = [...card.querySelectorAll('.triggerFields input[type=checkbox]:checked')]
         .map(x => x.dataset.key);
 
-      return { name, geomType, srid, mandatoryFields, optionalFields, triggers };
+      const historik = card.querySelector('.historik').checked;
+
+      return { name, geomType, srid, mandatoryFields, optionalFields, triggers, historik };
     });
   }
 
@@ -279,8 +288,28 @@
     URL.revokeObjectURL(url);
   }
 
+  async function copySql(sql, btn) {
+    try {
+      await navigator.clipboard.writeText(sql);
+    } catch {
+      // fallback om Clipboard API inte är tillgängligt (t.ex. ej https)
+      outputEl.select();
+      document.execCommand('copy');
+    }
+
+    const label = btn.textContent;
+    btn.textContent = 'Kopierat!';
+    btn.disabled = true;
+    setTimeout(() => { btn.textContent = label; btn.disabled = false; }, 1500);
+  }
+
   document.getElementById('addTableBtn').addEventListener('click', () => addTableCard());
   document.getElementById('generateBtn').addEventListener('click', generateSql);
+  document.getElementById('copyBtn').addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const sql = await generateSql();
+    if (sql) copySql(sql, btn);
+  });
   document.getElementById('downloadBtn').addEventListener('click', async () => {
     const sql = await generateSql();
     if (sql) downloadSql(sql);

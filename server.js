@@ -65,13 +65,13 @@ const COLUMN_DEFS = {
 const TRIGGERS = {
   uppdatera_langd: {
     trigName: "trigger_uppdatera_langd",
-    timing: "BEFORE INSERT",
+    timing: "BEFORE INSERT OR UPDATE",
     requires: ["langd", "geom"],
     fn: "uppdatera_langd",
   },
   uppdatera_area: {
     trigName: "trigger_uppdatera_area",
-    timing: "BEFORE INSERT",
+    timing: "BEFORE INSERT OR UPDATE",
     requires: ["area", "geom"],
     fn: "uppdatera_area",
   },
@@ -115,7 +115,7 @@ function renderGeomColumn({ geomType, srid }) {
   return `    geom geometry(${gt},${sr})`;
 }
 
-function renderColumnsSql({ mandatoryFields, optionalFields, geomType, srid, selectedTriggers }) {
+function resolveColumns({ mandatoryFields, optionalFields, selectedTriggers }) {
   const baseMandatory = ["gid", "geom", "skapad_av", "skapad_datum", "modifierad_av", "modifierad_datum"];
 
   const mand = uniq([...(mandatoryFields || []), ...baseMandatory]);
@@ -149,7 +149,11 @@ function renderColumnsSql({ mandatoryFields, optionalFields, geomType, srid, sel
   // resten (t.ex. area/langd)
   for (const c of finalCols) if (!ordered.includes(c)) ordered.push(c);
 
-  const lines = ordered.map(c => {
+  return ordered;
+}
+
+function renderColumnsSql({ columns, geomType, srid }) {
+  const lines = columns.map(c => {
     if (c === "geom") return renderGeomColumn({ geomType, srid });
     return COLUMN_DEFS[c];
   });
@@ -157,10 +161,52 @@ function renderColumnsSql({ mandatoryFields, optionalFields, geomType, srid, sel
   return lines.join(",\n");
 }
 
-function renderGeomIndex({ schemaQ, tableQ, hasGeom }) {
+// Historiktabell: samma kolumner som huvudtabellen, men gid är en vanlig kolumn
+// (inte identity/PK) eftersom samma gid förekommer flera gånger.
+function renderHistorySql({ template, schemaName, schemaQ, tableName, tableQ, columns, geomType, srid }) {
+  const histName = `${tableName}_historik`;
+  const fnSave = `${tableName}_spara_historik`;
+  const fnRestore = `${tableName}_aterstall`;
+  for (const n of [histName, fnSave, fnRestore]) {
+    const err = validateIdent(n, `Namnet "${n}" (från tabellnamn)`);
+    if (err) throw new Error(`${err}. Korta ner tabellnamnet.`);
+  }
+
+  const histColumns = columns.map(c => {
+    if (c === "gid") return `    gid integer NOT NULL`;
+    if (c === "geom") return renderGeomColumn({ geomType, srid });
+    return COLUMN_DEFS[c];
+  });
+
+  const dataCols = columns.filter(c => c !== "gid");
+
+  return applyTemplate(template, {
+    SCHEMA: schemaName,
+    SCHEMA_Q: schemaQ,
+    TABLE: tableName,
+    TABLE_Q: tableQ,
+    HIST: histName,
+    HIST_Q: quoteIdent(histName),
+    HIST_PKEY_Q: quoteIdent(`${histName}_pkey`),
+    HIST_CHECK_Q: quoteIdent(`${histName}_andringstyp_check`),
+    HIST_GID_IDX_Q: quoteIdent(`${histName}_gid_idx`),
+    HIST_GEOM_IDX_Q: quoteIdent(`${histName}_geom_idx`),
+    FN_SAVE: fnSave,
+    FN_SAVE_Q: quoteIdent(fnSave),
+    FN_RESTORE: fnRestore,
+    FN_RESTORE_Q: quoteIdent(fnRestore),
+    HIST_COLUMNS: histColumns.join(",\n"),
+    COL_LIST: columns.join(", "),
+    OLD_COL_LIST: columns.map(c => `OLD.${c}`).join(", "),
+    H_COL_LIST: columns.map(c => `h.${c}`).join(", "),
+    SET_LIST: dataCols.map(c => `${c} = h.${c}`).join(",\n               "),
+  });
+}
+
+function renderGeomIndex({ schemaQ, tableName, tableQ, hasGeom }) {
   if (!hasGeom) return `-- (geom ej vald => inget GIST-index)\n`;
   return `
-CREATE INDEX IF NOT EXISTS ${tableQ}_geom_idx
+CREATE INDEX IF NOT EXISTS ${quoteIdent(`${tableName}_geom_idx`)}
     ON ${schemaQ}.${tableQ} USING gist
     (geom)
     TABLESPACE pg_default;
@@ -203,6 +249,7 @@ app.post("/api/generate-sql", async (req, res) => {
 
     const baseTemplate = await fs.readFile(path.join(__dirname, "template-base.sql"), "utf8");
     const tableTemplate = await fs.readFile(path.join(__dirname, "template-table.sql"), "utf8");
+    const historyTemplate = await fs.readFile(path.join(__dirname, "template-historik.sql"), "utf8");
 
     const baseSql = applyTemplate(baseTemplate, { SCHEMA: schemaName, SCHEMA_Q: schemaQ });
 
@@ -222,16 +269,15 @@ app.post("/api/generate-sql", async (req, res) => {
       const geomType = (t?.geomType ?? "Geometry").trim();
       const srid = t?.srid ?? 3006; // default SWEREF 99 TM
 
-      const columnsSql = renderColumnsSql({
+      const columns = resolveColumns({
         mandatoryFields: t?.mandatoryFields || [],
         optionalFields: t?.optionalFields || [],
-        geomType,
-        srid,
         selectedTriggers,
       });
+      const columnsSql = renderColumnsSql({ columns, geomType, srid });
 
       const hasGeom = true; // geom är obligatoriskt i detta upplägg
-      const geomIndexSql = renderGeomIndex({ schemaQ, tableQ, hasGeom });
+      const geomIndexSql = renderGeomIndex({ schemaQ, tableName, tableQ, hasGeom });
 
       const triggersSql = renderTriggersSql({ schemaQ, tableQ, selectedTriggerKeys: selectedTriggers });
 
@@ -240,12 +286,21 @@ app.post("/api/generate-sql", async (req, res) => {
         SCHEMA_Q: schemaQ,
         TABLE: tableName,
         TABLE_Q: tableQ,
+        PKEY_Q: quoteIdent(`${tableName}_pkey`),
         COLUMNS: columnsSql,
         GEOM_INDEX: geomIndexSql,
         TRIGGERS: triggersSql,
       });
 
       tablesSql += "\n\n" + oneTableSql.trim() + "\n";
+
+      if (t?.historik) {
+        const historySql = renderHistorySql({
+          template: historyTemplate,
+          schemaName, schemaQ, tableName, tableQ, columns, geomType, srid,
+        });
+        tablesSql += "\n\n" + historySql.trim() + "\n";
+      }
     }
 
     res.json({ sql: (baseSql.trim() + "\n\n" + tablesSql.trim() + "\n").trim() + "\n" });
